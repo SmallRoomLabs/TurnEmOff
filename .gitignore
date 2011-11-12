@@ -1,0 +1,9 @@
+#
+# Generic .gitignore for SmallRoomLabs Eagle & uController projects
+#
+*~
+*.b#*
+*.s#*
+*.l#*
+*.pro
+thumbs.db
