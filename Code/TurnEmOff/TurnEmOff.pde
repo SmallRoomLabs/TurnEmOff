@@ -32,6 +32,22 @@
  */
 
 
+/*
+KEY LAYOUT
+
+            26 27 28
+
+      1  2  3  4  5
+      6  7  8  9  10
+      11 12 13 14 15
+      16 17 18 19 20
+      21 22 23 24 25
+      
+
+
+*/
+
+
 
 /*
 It unpacks as a string of 15 bits as follows for the letter 'A':
@@ -90,7 +106,7 @@ void setup(void) {
     digitalWrite(i, LOW);
   }
 
-  Timer1.initialize(1000);
+  Timer1.initialize(911);  // Prime number
   Timer1.attachInterrupt(RefreshLeds); 
   Serial.begin(9600);
 }
@@ -123,6 +139,8 @@ void loop(void) {
       break;
     }
     if (key==0) continue;
+
+    Serial.println(key, DEC);
 
     if (key==KEY_A) {
       game++;
@@ -594,7 +612,142 @@ void PlaySimon(void) {
 
 
 
-unsigned long mazebitmap[32];
+
+
+
+
+
+// ---------------------------------------------------------------------------
+//
+//
+//
+// ---------------------------------------------------------------------------
+unsigned long maze[32];
+
+void PlayMaze(void) {
+  byte x,y;
+  byte px,py;
+  byte ox, oy;
+  byte done;
+  unsigned long mask;
+  byte key;
+  byte keyflag;
+  byte refresh;
+  byte cnt;
+  byte flash;
+
+  ledGrid=0;
+  for (byte y=0; y<32; y++) maze[y]=0;
+  GenerateMaze();
+  PrintMaze();
+  StartAnimation();
+
+  // Find empty space for player to start
+  done=0;
+  for (px=0; px<8 && !done; px++) {
+    for (py=0; py<8 && !done; py++) {
+      if (!(maze[py]&(1UL<<px))) done=1;
+    }
+  }
+  
+  px=2; py=2;
+
+  ox=0;
+  oy=0;
+  cnt=0;
+  flash=0;
+  refresh=1;
+  for (;;) {
+
+    if (refresh) {
+      ledGrid=0;
+      for (y=0; y<5; y++) {
+        for (x=0; x<5; x++) {
+          if (maze[y+oy]&(1UL<<(x+ox))) ledGrid|=(1UL<<y*5+x);
+        }
+      }
+      refresh=0;
+    }
+    cnt++;
+    if (cnt>30) {
+      cnt=0;
+      ledGrid^=(1UL<<py*5+px);
+    }
+    
+    key=touch;
+    delay(10);
+    if (touch!=key) continue;  // Key still bouncing
+    if (key==0) {
+      keyflag=0;
+      continue;
+    }
+    
+    if (key==KEY_A) return;
+    if (key==KEY_B) return;
+    
+    if (keyflag) continue;
+  
+    if (key==2 || key==3 || key==5) {  // Up
+      if (oy>0) {
+          if (maze[y+oy-1]&(1UL<<(x+ox))) {
+            flash=1;
+          } else { 
+            oy--;
+          }
+      }
+      refresh=1;
+      keyflag=1;
+    }
+    
+    if (key==6 || key==11 || key==16) { //Left
+      if (ox>0) {
+          if (maze[y+oy]&(1UL<<(x+ox-1))) {
+            flash=1;
+          } else {
+            ox--;
+          }
+      }
+      refresh=1;
+      keyflag=1;    
+    }
+    
+    if (key==22 || key==23 || key==24) { //Down
+      if (oy<25) {
+        if (maze[y+oy+1]&(1UL<<(x+ox))) {
+          flash=1;
+        } else {  
+          oy++;
+        }
+      }
+      refresh=1;
+      keyflag=1;    
+    }
+    
+    if (key==10 || key==15 || key==20) { //Right
+      if (ox<25) {
+        if (maze[y+oy]&(1UL<<(x+ox+1))) {
+          flash=1;
+        } else {
+          ox++;
+        }
+      }
+      refresh=1;
+      keyflag=1;    
+    }
+      
+    if (flash) {
+      flash=0;
+      led123456=0x3f;
+      delay(100);
+      led123456=0;
+    }      
+      
+  }
+  
+
+  
+}
+
 
 void PrintMaze(void) {
   unsigned long mask;
@@ -603,7 +756,7 @@ void PrintMaze(void) {
     Serial.println();
     mask=1UL;
     for (byte x=0; x<32; x++) {
-      if (mazebitmap[y] & mask) {
+      if (maze[y] & mask) {
         Serial.print("X");
       } else {
         Serial.print(".");
@@ -613,25 +766,6 @@ void PrintMaze(void) {
   }
   Serial.println();
 }
-
-
-
-
-// ---------------------------------------------------------------------------
-//
-//
-//
-// ---------------------------------------------------------------------------
-void PlayMaze(void) {
-  delay(1000);
-  Serial.println("Start");
-  for (byte y=0; y<32; y++) mazebitmap[y]=0;
-  GenerateMaze();
-  Serial.println("Done");
-  Serial.println();
-  PrintMaze();
-}
-
 
 
 
@@ -666,7 +800,7 @@ byte WALL[]     = { ~WALL_N, ~WALL_E, ~WALL_S, ~WALL_W };
 //
 void MZ_SetPoint(byte x, byte y, byte c) {
   if (c==WALL_1) {
-    mazebitmap[y] |= (1UL<<x);
+    maze[y] |= (1UL<<x);
   }
 }
 
