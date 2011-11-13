@@ -2,8 +2,11 @@
 #include <TimerOne.h>
 
 //
-// TurnEmOff
+// Maze generating code from Lars Schumann
+// http://make.larsi.org/electronics/ATmegaX8/Peggy2LE/
 //
+//
+
 
 /*
             D14 A0   PC0 TLed Anode 1,11,21
@@ -89,6 +92,7 @@ void setup(void) {
 
   Timer1.initialize(1000);
   Timer1.attachInterrupt(RefreshLeds); 
+  Serial.begin(9600);
 }
 
 
@@ -103,6 +107,9 @@ void loop(void) {
   ledABC=0;
   game=0;
 
+
+  PlayMaze();
+
   for (;;) {
     switch (game) {
     case 0:   
@@ -114,12 +121,15 @@ void loop(void) {
     case 2:
       key=ScrollMessage("WACK-A-MOLE ");
       break;
+    case 3:
+      key=ScrollMessage("MAZE ");
+      break;
     }
     if (key==0) continue;
 
     if (key==KEY_A) {
       game++;
-      if (game>2) game=0;
+      if (game>3) game=0;
       ledGrid=0;
       delay(500);      
       continue;
@@ -129,6 +139,7 @@ void loop(void) {
       if (game==0) PlayLightsOut();
       if (game==1) PlaySimon();
       if (game==2) PlayWhackAMole();
+//      if (game==3) PlayMaze();
       continue;
     }
   }
@@ -584,4 +595,182 @@ void PlaySimon(void) {
 
 
 
+
+
+unsigned long mazebitmap[32];
+
+void PrintMaze(void) {
+  unsigned long mask;
+  
+  for (byte y=0; y<32; y++) {
+    Serial.println();
+    mask=1UL;
+    for (byte x=0; x<32; x++) {
+      if (mazebitmap[y] & mask) {
+        Serial.print("X");
+      } else {
+        Serial.print(".");
+      }
+      mask = mask << 1;
+    }
+  }
+  Serial.println();
+}
+
+
+
+
+#define WALL_0      0
+#define WALL_1      2
+
+// wall constants
+#define WALL_N   0x10
+#define WALL_E   0x20
+#define WALL_S   0x40
+#define WALL_W   0x80
+#define WALL_ALL 0xF0
+
+//                        N        E        S        W
+byte MOVE_X[]   = {       0,       1,       0,      -1 };
+byte MOVE_Y[]   = {      -1,       0,       1,       0 };
+
+// AND clear mask for walls
+byte WALL[]     = { ~WALL_N, ~WALL_E, ~WALL_S, ~WALL_W };
+
+// dimensions of maze
+#define DIM_X 15
+#define DIM_Y 15
+
+// size of maze
+#define TOTAL DIM_X * DIM_Y
+
+byte maze[TOTAL];
+
+byte curr_x;
+byte curr_y;
+
+byte dir;
+
+
+
+void GenerateMaze(void) {
+
+  // choose random a cell and make it the current cell
+  curr_x = random(DIM_X);
+  curr_y = random(DIM_Y);
+  byte curr_i = curr_y * DIM_X + curr_x;
+
+  // create a maze of cells with all walls up, maze[] is a bit mask
+  // upper 4 bits are for what wall is up
+  // lowest 2 bits is step back direction
+  // 7   6   5   4   3   2   1   0
+  // W   S   E   N          D1  D0
+  for (byte i = 0; i < TOTAL; i++) maze[i] = WALL_ALL;
+
+  //------------------------------------------------------------
+  // GENERATE
+  //
+  byte visited = 1;
+  byte poss_dir[] = { 0, 0, 0, 0 };
+
+  while (visited < TOTAL) {
+    byte dir_cnt = 0;
+
+    // find all neighbors of current cell with all walls intact in order: N E S W
+    for (dir = 0; dir < 4; dir++) {
+      byte next_x = curr_x + MOVE_X[dir];
+      byte next_y = curr_y + MOVE_Y[dir];
+
+      //  check for valid next cell
+      if ((0 <= next_x) && (next_x < DIM_X) && (0 <= next_y) && (next_y < DIM_Y))
+        // check if previously visited
+        if (maze[next_y * DIM_X + next_x] == WALL_ALL)
+          // not visited, so add to possible next cells
+          poss_dir[dir_cnt++] = dir;
+    }
+
+    if (dir_cnt > 0) {
+      // current cell has one or more unvisited neighbors, so choose one at random
+      dir = poss_dir[random(dir_cnt)];
+
+      // clear current wall
+      maze[curr_i] &= WALL[dir];
+
+      // make next cell the current cell
+      curr_x += MOVE_X[dir];
+      curr_y += MOVE_Y[dir];
+      curr_i = curr_y * DIM_X + curr_x;
+
+      // find opposing dir by XOR 0x02, N 0x00 <-> S 0x02, E 0x01 <-> W 0x03
+      dir ^= 0x02;
+
+      // clear opposing wall
+      maze[curr_i] &= WALL[dir];
+
+      // step back direction
+      maze[curr_i] |= dir;
+
+      // increment count of visited cells
+      visited++;
+    } 
+    else {
+      // reached dead end, backtrack by getting direction back from maze[]
+      dir = maze[curr_i] & 0x03;
+
+      // make prev cell the current cell
+      curr_x += MOVE_X[dir];
+      curr_y += MOVE_Y[dir];
+      curr_i = curr_y * DIM_X + curr_x;
+    }
+  }
+
+  //------------------------------------------------------------
+  // display
+  //
+  curr_i = 0;
+  byte x_ = 0;
+  byte y_ = 0;
+  for (byte y = 0; y < DIM_Y; y++) {
+    for (byte x = 0; x < DIM_X; x++) {
+      SetPoint(x_++, y_, WALL_1);
+      SetPoint(x_++, y_, (maze[curr_i++] & WALL_N) ? WALL_1 : WALL_0); 
+    }
+    SetPoint(x_++, y_, WALL_1);
+    x_ = 0;
+    y_++;
+
+    curr_i -= DIM_X;
+    for (byte x = 0; x < DIM_X; x++) {
+      SetPoint(x_++, y_, (maze[curr_i++] & WALL_W) ? WALL_1 : WALL_0);
+      SetPoint(x_++, y_, WALL_0);
+    }
+    SetPoint(x_++, y_, WALL_1);
+    x_ = 0;
+    y_++;
+  }
+  for (byte x = 0; x < 2 * DIM_X + 1; x++)
+    SetPoint(x_++, y_, WALL_1);
+
+}
+
+
+
+void PlayMaze(void) {
+  delay(1000);
+  Serial.println("Start");
+  for (byte y=0; y<32; y++) mazebitmap[y]=0;
+  GenerateMaze();
+  Serial.println("Done");
+  Serial.println();
+  PrintMaze();
+}
+
+
+
+
+void SetPoint(byte x, byte y, byte c) {
+  if (c==WALL_1) {
+    mazebitmap[y] |= (1UL<<x);
+  }
+}
 
